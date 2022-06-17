@@ -1,0 +1,30 @@
+# my global config
+global:
+  scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
+  # scrape_timeout is set to the global default (10s).
+
+scrape_configs:
+  - job_name: "adclick"
+    static_configs:
+      - targets: ["adclick:8080"]
+
+  - job_name: "adeliver"
+    static_configs:
+      - targets: [ "adeliver:8080" ]
+
+  - job_name: "adshow"
+    static_configs:
+      - targets: [ "adshow:8080" ]
+
+  - job_name: "adstat"
+    static_configs:
+      - targets: [ "adstat:8080" ]
+
+  - job_name: "crmad"
+    static_configs:
+      - targets: [ "crmad:8080" ]
+
+  - job_name: "crmadm"
+    static_configs:
+      - targets: [ "crmadm:8080" ]

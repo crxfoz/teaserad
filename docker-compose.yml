@@ -1,0 +1,225 @@
+---
+version: '3.4'
+
+services:
+  nginx:
+    image: nginx:1.21
+    container_name: nginx-hl
+    restart: on-failure
+    volumes:
+      - "./.deploy/nginx/nginx.conf:/etc/nginx/conf.d/default.conf"
+    ports:
+      - "7777:80"
+
+  crmad:
+    build:
+      dockerfile: crmad/cmd/crmad/Dockerfile
+      context: ./
+    deploy:
+      replicas: 1
+    ports:
+      - "8080:8080"
+    environment:
+      - WAIT_HOSTS=kafka-1:9094,kafka-2:9094,kafka-3:9094,db-master:3306
+
+  crmadm:
+    build:
+      dockerfile: crmadm/cmd/crmadm/Dockerfile
+      context: ./
+    deploy:
+      replicas: 1
+    ports:
+      - "8081:8080"
+    environment:
+      - WAIT_HOSTS=kafka-1:9094,kafka-2:9094,kafka-3:9094,db-master:3306
+
+  adeliver:
+    build:
+      dockerfile: adeliver/cmd/adeliver/Dockerfile
+      context: ./
+    deploy:
+      replicas: 1
+    environment:
+      - WAIT_HOSTS=kafka-1:9094,kafka-2:9094,kafka-3:9094,redis-1:6379,redis-2:6379,redis-3:6379,redis-4:6379
+
+  adshow:
+    build:
+      dockerfile: adshow/cmd/adshow/Dockerfile
+      context: ./
+    deploy:
+      replicas: 1
+    ports:
+      - "8085:8080"
+    environment:
+      - WAIT_HOSTS=kafka-1:9094,kafka-2:9094,kafka-3:9094,tarantool:3301,db-master:3306
+
+  adclick:
+    build:
+      dockerfile: adclick/cmd/adclick/Dockerfile
+      context: ./
+    deploy:
+      replicas: 1
+    ports:
+      - "8086:8080"
+    environment:
+      - WAIT_HOSTS=kafka-1:9094,kafka-2:9094,kafka-3:9094,redis-1:6379,redis-2:6379,redis-3:6379,redis-4:6379
+
+  adstat:
+    build:
+      dockerfile: adstat/cmd/adstat/Dockerfile
+      context: ./
+    deploy:
+      replicas: 1
+    ports:
+      - "8090:8080"
+    environment:
+      - WAIT_HOSTS=clickhouse-1:9000
+
+  prometheus:
+    image: prom/prometheus:v2.1.0
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    volumes:
+      - ./.deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.35.1
+    ports:
+      - "6831:6831/udp"
+      - "16686:16686"
+      - "14268:14268"
+
+  clickhouse-1:
+    container_name: clickhouse-1
+    image: yandex/clickhouse-server:21.3.20.1-alpine
+    ports:
+      - "9001:9000"
+      - "9002:8123"
+    volumes:
+      - ./data/clickhouse:/var/lib/clickhouse
+
+  tarantool:
+    container_name: tarantool
+    image: tarantool/tarantool:2.10.0-centos7-amd64
+    ports:
+      - "3301:3301"
+    volumes:
+      - "./data/tarantool:/opt/tarantool"
+      - "./adshow/migrations/tarantool/app.lua:/app.lua"
+    entrypoint: ["tarantool", "/app.lua"]
+
+  redis-1:
+    container_name: redis-1
+    image: redis:7.0.1-alpine3.16
+    ports:
+      - "4501:6379"
+
+  redis-2:
+    container_name: redis-2
+    image: redis:7.0.1-alpine3.16
+    ports:
+      - "4502:6379"
+
+  redis-3:
+    container_name: redis-3
+    image: redis:7.0.1-alpine3.16
+    ports:
+      - "4503:6379"
+
+  redis-4:
+    container_name: redis-4
+    image: redis:7.0.1-alpine3.16
+    ports:
+      - "4504:6379"
+
+  db-master:
+    container_name: db-master
+    image: mysql:5.7
+    environment:
+      MYSQL_ROOT_PASSWORD: user123
+      MYSQL_DATABASE: crmad
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./data/db_master:/var/lib/mysql
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "4000:8080"
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka-1:9092,kafka-2:9092,kafka-3:9092
+      - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
+
+  zookeeper:
+    image: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka-1:
+    image: wurstmeister/kafka
+    ports:
+      - "9095:9094"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENERS: INTERNAL://kafka-1:9092,OUTSIDE://kafka-1:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:9092,OUTSIDE://localhost:9095
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,OUTSIDE:PLAINTEXT
+
+      KAFKA_LOG_DIRS: /kafka/logs
+      KAFKA_BROKER_ID: 500
+      KAFKA_offsets_topic_replication_factor: 3
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/kafka/500:/kafka
+
+  kafka-2:
+    image: wurstmeister/kafka
+    ports:
+      - "9096:9094"
+    environment:
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: INTERNAL://kafka-2:9092,OUTSIDE://kafka-2:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:9092,OUTSIDE://localhost:9096
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_LOG_DIRS: /kafka/logs
+      KAFKA_BROKER_ID: 501
+      KAFKA_offsets_topic_replication_factor: 3
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/kafka/501:/kafka
+
+  kafka-3:
+    image: wurstmeister/kafka
+    ports:
+      - "9097:9094"
+    environment:
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENERS: INTERNAL://kafka-3:9092,OUTSIDE://kafka-3:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-3:9092,OUTSIDE://localhost:9097
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,OUTSIDE:PLAINTEXT
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LOG_DIRS: /kafka/logs
+      KAFKA_BROKER_ID: 502
+      KAFKA_offsets_topic_replication_factor: 3
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/kafka/502:/kafka
